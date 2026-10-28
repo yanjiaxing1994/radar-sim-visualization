@@ -1,0 +1,42 @@
+# 构建产物
+build/
+build-*/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+radar_sim
+radar_sim.app/
+*.dSYM/
+
+# Qt 生成
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*.moc
+.qmake.stash
+Makefile
+*.pro.user
+CMakeLists.txt.user
+*.user
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# macOS
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志与临时文件
+*.log
+config.json

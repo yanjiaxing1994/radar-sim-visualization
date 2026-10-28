@@ -1,0 +1,2219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radar Sim · 雷达对抗仿真台</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #050912;
+    --panel: rgba(13, 22, 35, 0.84);
+    --panel-strong: rgba(15, 27, 43, 0.96);
+    --line: rgba(148, 163, 184, 0.14);
+    --line-strong: rgba(148, 163, 184, 0.24);
+    --text: #e5edf7;
+    --muted: #8291a7;
+    --accent: #2dd4bf;
+    --blue: #60a5fa;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --cyan: #22d3ee;
+    --status-color: var(--green);
+    /* 麒麟 V10 兼容：若浏览器 monospace 渲染异常，
+       可将 --mono 替换为 "Noto Sans Mono CJK SC" 或系统可用等宽字体。 */
+    --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono",
+            "Noto Sans Mono CJK SC", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { min-height: 100%; }
+
+  body {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--sans);
+    background:
+      radial-gradient(circle at 16% 8%, rgba(45, 212, 191, 0.09), transparent 34%),
+      radial-gradient(circle at 88% 4%, rgba(96, 165, 250, 0.08), transparent 30%),
+      linear-gradient(180deg, #060b14 0%, #04070d 100%);
+    background-attachment: fixed;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(circle at 50% 30%, black, transparent 78%);
+  }
+
+  .app {
+    position: relative;
+    width: min(1500px, calc(100% - 36px));
+    margin: 0 auto;
+    padding: 18px 0 12px;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 8px 4px 18px;
+  }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+
+  .logo {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: var(--accent);
+    font-size: 23px;
+    border: 1px solid rgba(45, 212, 191, 0.35);
+    background: linear-gradient(145deg, rgba(45, 212, 191, 0.16), rgba(45, 212, 191, 0.02));
+    box-shadow: 0 0 30px rgba(45, 212, 191, 0.12), inset 0 0 18px rgba(45, 212, 191, 0.06);
+  }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+  }
+
+  .brand p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+    letter-spacing: 0.03em;
+  }
+
+  .top-right { display: flex; align-items: center; gap: 18px; }
+
+  .clock {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .conn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(8, 15, 25, 0.72);
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .conn .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 10px var(--amber);
+  }
+
+  .conn.online { color: #b8f7e8; border-color: rgba(45, 212, 191, 0.3); }
+  .conn.online .dot { background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: breathe 2s ease-in-out infinite; }
+  .conn.offline { color: #fecaca; border-color: rgba(248, 113, 113, 0.28); }
+  .conn.offline .dot { background: var(--red); box-shadow: 0 0 10px var(--red); }
+
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.82); }
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.82fr);
+    gap: 18px;
+    align-items: start;
+  }
+
+  .card,
+  .scope-card,
+  .metrics {
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(16, 27, 43, 0.82), rgba(8, 14, 24, 0.88));
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(12px);
+  }
+
+  .scope-card { padding: 16px 16px 12px; overflow: hidden; }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .card-head h2 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .card-head p {
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .card-head.small { align-items: center; }
+  .card-head.small h2 { font-size: 12px; color: #b9c6d8; }
+
+  .scope-stats {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    padding: 6px 9px;
+    border-radius: 7px;
+    border: 1px solid rgba(45, 212, 191, 0.18);
+    background: rgba(45, 212, 191, 0.05);
+    white-space: nowrap;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    width: min(100%, calc(100vh - 248px));
+    aspect-ratio: 1 / 1;
+    margin: 14px auto 10px;
+    border-radius: 50%;
+    background: #040913;
+    border: 1px solid rgba(96, 165, 250, 0.13);
+    box-shadow: inset 0 0 80px rgba(45, 212, 191, 0.035), 0 0 60px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  #scope { display: block; width: 100%; height: 100%; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 2px 4px 2px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .legend span { display: flex; align-items: center; gap: 6px; }
+
+  .swatch { width: 14px; height: 0; border-top: 2px dashed; display: inline-block; }
+  .swatch.r0 { border-color: var(--blue); }
+  .swatch.reff { border-color: var(--amber); }
+  .swatch.target { border-top-style: solid; border-color: var(--green); }
+  .swatch.jammer { border-top-style: solid; border-color: var(--amber); }
+
+  .left-col { display: grid; gap: 18px; min-width: 0; }
+
+  .map-card { padding: 16px; }
+
+  .map-canvas {
+    position: relative;
+    z-index: 0;
+    height: 430px;
+    margin-top: 14px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(96, 165, 250, 0.14);
+    background: #050b14;
+  }
+
+  .map-canvas.map-unavailable {
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.8;
+    text-align: center;
+  }
+
+  .map-canvas.map-unavailable span { color: #5d6d82; font-size: 10.5px; }
+
+  .map-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px 12px;
+    padding-top: 12px;
+    color: var(--muted);
+    font-size: 10.5px;
+  }
+
+  .map-tool-label { color: #a8b6c8; }
+
+  .coord { display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
+
+  .coord input {
+    width: 84px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    background: #08121e;
+    color: #c7d4e4;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    outline: none;
+  }
+
+  .coord input:focus { border-color: rgba(45, 212, 191, 0.45); }
+
+  .map-hint { margin-left: auto; color: #526176; font-family: var(--mono); font-size: 9.5px; }
+
+  .leaflet-container { background: #050b14; font-family: var(--sans); }
+
+  /* OpenStreetMap 标准瓦片的深色适配（不改变底图接口，无需 API Key）。 */
+  .map-canvas.map-dark .leaflet-tile-pane {
+    filter: brightness(0.78) invert(1) hue-rotate(180deg) contrast(0.9) saturate(0.55);
+  }
+
+  .leaflet-control-zoom a {
+    background: #0a1523 !important;
+    color: #b9c6d8 !important;
+    border-color: rgba(148, 163, 184, 0.18) !important;
+  }
+
+  .leaflet-control-zoom a:hover { background: #122236 !important; color: #fff !important; }
+
+  .leaflet-control-layers {
+    background: rgba(8, 16, 28, 0.92) !important;
+    color: #b9c6d8 !important;
+    border: 1px solid var(--line-strong) !important;
+    border-radius: 8px !important;
+  }
+
+  .leaflet-control-attribution {
+    background: rgba(5, 10, 18, 0.78) !important;
+    color: #5d6d82 !important;
+  }
+
+  .leaflet-control-attribution a { color: #8095ad !important; }
+
+  .leaflet-tooltip.map-tip {
+    background: rgba(5, 11, 19, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    color: #d7e2f0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    font-size: 10.5px;
+    padding: 4px 7px;
+    border-radius: 6px;
+  }
+
+  .leaflet-tooltip.map-tip::before { display: none; }
+
+  .map-icon-host { background: none; border: none; }
+
+  .map-radar-icon {
+    position: relative;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: rgba(45, 212, 191, 0.18);
+    box-shadow: 0 0 16px rgba(45, 212, 191, 0.75);
+  }
+
+  .map-radar-icon::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    border: 1px dashed rgba(45, 212, 191, 0.5);
+    animation: spin 7s linear infinite;
+  }
+
+  .map-target-icon {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--c);
+    border: 2px solid rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 16px var(--c);
+    animation: mapPulse 1.6s ease-in-out infinite;
+  }
+
+  .map-jammer-icon {
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
+    border: 2px solid var(--amber);
+    background: rgba(251, 191, 36, 0.22);
+    box-shadow: 0 0 14px rgba(251, 191, 36, 0.75);
+    transform: rotate(45deg);
+  }
+
+  @keyframes mapPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.35); opacity: 0.7; }
+  }
+
+  .side { display: grid; gap: 12px; }
+
+  .status-card { padding: 16px; }
+
+  .status-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+
+  .eyebrow {
+    margin: 0 0 9px;
+    color: var(--muted);
+    font-size: 9.5px;
+    letter-spacing: 0.17em;
+    font-weight: 600;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 6px 13px;
+    border-radius: 8px;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    background: rgba(52, 211, 153, 0.1);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .status-cn { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+
+  .status-ring {
+    --ring-color: var(--green);
+    position: relative;
+    width: 60px;
+    height: 60px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--ring-color);
+    font-family: var(--mono);
+    font-size: 21px;
+    font-weight: 700;
+    border: 1px solid color-mix(in srgb, var(--ring-color) 42%, transparent);
+    box-shadow: 0 0 24px color-mix(in srgb, var(--ring-color) 20%, transparent),
+                inset 0 0 18px color-mix(in srgb, var(--ring-color) 8%, transparent);
+  }
+
+  .status-ring::after {
+    content: "";
+    position: absolute;
+    inset: -7px;
+    border-radius: 50%;
+    border: 1px dashed color-mix(in srgb, var(--ring-color) 30%, transparent);
+    animation: spin 9s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .flags { display: grid; gap: 7px; margin-top: 15px; }
+
+  .flag {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: rgba(4, 9, 17, 0.42);
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+
+  .flag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #46566c;
+    flex: 0 0 auto;
+  }
+
+  .flag b { margin-left: auto; font-family: var(--mono); font-weight: 500; color: #9aabc0; }
+
+  .flag.on { color: #baf7e8; border-color: rgba(52, 211, 153, 0.2); }
+  .flag.on .flag-dot { background: var(--green); box-shadow: 0 0 9px var(--green); }
+  .flag.on b { color: var(--green); }
+  .flag.cyan { color: #c9f6ff; border-color: rgba(34, 211, 238, 0.2); }
+  .flag.cyan .flag-dot { background: var(--cyan); box-shadow: 0 0 9px var(--cyan); }
+  .flag.cyan b { color: var(--cyan); }
+  .flag.warn { color: #fde7b7; border-color: rgba(251, 191, 36, 0.2); }
+  .flag.warn .flag-dot { background: var(--amber); box-shadow: 0 0 9px var(--amber); }
+  .flag.warn b { color: var(--amber); }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    overflow: hidden;
+    background: var(--line);
+  }
+
+  .metric {
+    padding: 13px 14px 12px;
+    background: rgba(9, 16, 27, 0.92);
+  }
+
+  .metric span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font-size: 10.5px;
+  }
+
+  .metric b {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+  }
+
+  .metric small { margin-left: 4px; color: var(--muted); font-family: var(--mono); font-size: 9.5px; }
+
+  .js-card { padding: 14px 15px 12px; }
+
+  .js-card .card-head span {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+
+  .js-track {
+    position: relative;
+    height: 8px;
+    margin: 14px 0 7px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(52, 211, 153, 0.16), rgba(251, 191, 36, 0.13), rgba(248, 113, 113, 0.18));
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .js-fill {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--green);
+    box-shadow: 0 0 12px currentColor;
+    transition: width 0.16s ease, background 0.16s ease;
+  }
+
+  .js-threshold {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    left: 30%;
+    width: 1px;
+    background: #e5edf7;
+    opacity: 0.75;
+  }
+
+  .js-threshold::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: -4px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #e5edf7;
+  }
+
+  .js-labels {
+    display: flex;
+    justify-content: space-between;
+    color: #66758b;
+    font-family: var(--mono);
+    font-size: 9.5px;
+  }
+
+  .controls-card { padding: 14px 15px 15px; }
+
+  .ghost-btn {
+    border: 1px solid var(--line-strong);
+    background: rgba(148, 163, 184, 0.05);
+    color: #b7c4d6;
+    border-radius: 7px;
+    padding: 6px 11px;
+    font-family: var(--sans);
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: 0.15s ease;
+  }
+
+  .ghost-btn:hover { color: var(--text); border-color: rgba(45, 212, 191, 0.35); background: rgba(45, 212, 191, 0.07); }
+
+  .control { display: block; margin-top: 14px; }
+
+  .control-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: #a8b6c8;
+    font-size: 11px;
+  }
+
+  .control-label b {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  input[type="range"] {
+    display: block;
+    width: 100%;
+    height: 4px;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.55), rgba(96, 165, 250, 0.3));
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #dffbf5;
+    border: 3px solid var(--accent);
+    box-shadow: 0 0 13px rgba(45, 212, 191, 0.55);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #dffbf5;
+    border: 3px solid var(--accent);
+    box-shadow: 0 0 13px rgba(45, 212, 191, 0.55);
+  }
+
+  .toggles { display: flex; gap: 18px; margin-top: 16px; }
+
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #a8b6c8;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .switch input { position: absolute; opacity: 0; pointer-events: none; }
+
+  .switch .track {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: #263445;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    transition: 0.18s ease;
+  }
+
+  .switch .track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #8fa0b5;
+    transition: 0.18s ease;
+  }
+
+  .switch input:checked + .track { background: rgba(45, 212, 191, 0.25); border-color: rgba(45, 212, 191, 0.5); }
+  .switch input:checked + .track::after { left: 19px; background: #dffbf5; box-shadow: 0 0 10px rgba(45, 212, 191, 0.8); }
+
+  .select-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 15px;
+    color: #a8b6c8;
+    font-size: 11px;
+  }
+
+  select {
+    min-width: 170px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--line-strong);
+    background: #0a1421;
+    color: #c7d4e4;
+    font-family: var(--sans);
+    font-size: 11px;
+    outline: none;
+  }
+
+  select:focus { border-color: rgba(45, 212, 191, 0.45); }
+
+  .platform-card { padding: 14px 15px 15px; }
+
+  .platform-note {
+    color: #66758b;
+    font-family: var(--mono);
+    font-size: 9.5px;
+  }
+
+  .platform-group {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .platform-group:first-of-type {
+    margin-top: 12px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .platform-group h3 {
+    margin: 0 0 8px;
+    color: #a8b6c8;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 9px;
+  }
+
+  .field {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    color: #728198;
+    font-size: 9.5px;
+  }
+
+  .field .field-input {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .field input {
+    width: 100%;
+    min-width: 0;
+    padding: 6px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    background: #08121e;
+    color: #c7d4e4;
+    font-family: var(--mono);
+    font-size: 10px;
+    outline: none;
+  }
+
+  .field input:focus { border-color: rgba(45, 212, 191, 0.45); }
+
+  .field em {
+    color: #66758b;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-style: normal;
+    white-space: nowrap;
+  }
+
+  .field.span-2 { grid-column: 1 / -1; }
+
+  .target-xy { margin-top: 12px; }
+
+  .select-row.compact { margin-top: 10px; }
+
+  .select-row.compact select { min-width: 0; flex: 1; }
+
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 20px;
+    padding: 13px 4px 0;
+    color: #526176;
+    font-size: 10.5px;
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    .canvas-wrap { width: min(100%, 74vh); }
+    .map-canvas { height: 360px; }
+    .topbar { align-items: flex-start; }
+    .clock { display: none; }
+  }
+
+  @media (max-width: 560px) {
+    .app { width: calc(100% - 20px); }
+    .brand p { display: none; }
+    .canvas-wrap { width: 100%; }
+    .map-canvas { height: 300px; }
+    .map-hint { margin-left: 0; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+    footer { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">◎</div>
+      <div>
+        <h1>RADAR SIM</h1>
+        <p>雷达对抗仿真台 · Qt 5.12 / WebSocket 实时链路</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="conn" id="conn">
+        <span class="dot"></span>
+        <span id="connText">连接中…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <div class="left-col">
+    <section class="scope-card">
+      <div class="card-head">
+        <div>
+          <h2>PPI 态势</h2>
+          <p>拖动画面中的目标点改变位置，观察探测范围与状态变化</p>
+        </div>
+        <div class="scope-stats" id="scaleLabel">量程 -- km</div>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="scope"></canvas>
+      </div>
+      <div class="legend">
+        <span><i class="swatch r0"></i>R0 基准探测</span>
+        <span><i class="swatch reff"></i>R_eff 受扰后</span>
+        <span><i class="swatch target"></i>目标</span>
+        <span><i class="swatch jammer"></i>干扰机</span>
+      </div>
+    </section>
+
+    <section class="card map-card">
+      <div class="card-head">
+        <div>
+          <h2>二维地图</h2>
+          <p>雷达 / 目标 / 干扰机的地理位置 · 拖动标记或点击地图改位置</p>
+        </div>
+        <button id="fitMapBtn" class="ghost-btn" type="button">适配视图</button>
+      </div>
+      <div id="map" class="map-canvas"></div>
+      <div class="map-toolbar">
+        <span class="map-tool-label">地图原点 WGS84</span>
+        <label class="coord">纬 <input id="latInput" type="number" step="0.0001" min="-85" max="85" value="31.2304"></label>
+        <label class="coord">经 <input id="lonInput" type="number" step="0.0001" min="-180" max="180" value="121.4737"></label>
+        <button id="anchorBtn" class="ghost-btn" type="button">重定位</button>
+        <span class="map-hint">可拖动雷达 / 目标 / 干扰机标记 · OSM 底图</span>
+      </div>
+    </section>
+    </div>
+
+    <aside class="side">
+      <section class="card status-card">
+        <div class="status-top">
+          <div>
+            <p class="eyebrow">SYSTEM STATUS</p>
+            <div class="status-badge" id="statusBadge">NORMAL</div>
+            <p class="status-cn" id="statusCn">正常</p>
+          </div>
+          <div class="status-ring" id="statusRing"><span id="statusCode">N</span></div>
+        </div>
+        <div class="flags">
+          <div class="flag" id="radarFlag"><span class="flag-dot"></span><span>雷达探测</span><b id="radarText">--</b></div>
+          <div class="flag" id="esmFlag"><span class="flag-dot"></span><span>ESM 截获</span><b id="esmText">--</b></div>
+          <div class="flag" id="jamFlag"><span class="flag-dot"></span><span>干扰机</span><b id="jamText">--</b></div>
+        </div>
+      </section>
+
+      <section class="metrics">
+        <div class="metric"><span>R0 基准</span><b id="mR0">--</b><small>km</small></div>
+        <div class="metric"><span>R_eff 有效</span><b id="mReff">--</b><small>km</small></div>
+        <div class="metric"><span>目标距离</span><b id="mRange">--</b><small>km</small></div>
+        <div class="metric"><span>J/S</span><b id="mJs">--</b><small>dB</small></div>
+      </section>
+
+      <section class="card js-card">
+        <div class="card-head small">
+          <h2>J/S 压制余量</h2>
+          <span id="jsHint">干扰关闭</span>
+        </div>
+        <div class="js-track">
+          <div class="js-fill" id="jsFill"></div>
+          <div class="js-threshold" id="jsThreshold"></div>
+        </div>
+        <div class="js-labels"><span>-20 dB</span><span id="jsThresholdLabel">门限 10 dB</span><span>80 dB</span></div>
+      </section>
+
+      <section class="card controls-card">
+        <div class="card-head small">
+          <h2>场景控制</h2>
+          <button id="resetBtn" class="ghost-btn" type="button">重置</button>
+        </div>
+        <label class="control">
+          <div class="control-label"><span>目标距离</span><b id="rangeValue">25.0 km</b></div>
+          <input id="rangeInput" type="range" min="0.5" max="300" step="0.1" value="25">
+        </label>
+        <label class="control">
+          <div class="control-label"><span>方位角</span><b id="bearingValue">53.1°</b></div>
+          <input id="bearingInput" type="range" min="0" max="360" step="0.1" value="53.1">
+        </label>
+        <label class="control">
+          <div class="control-label"><span>目标 RCS</span><b id="rcsValue">5.0 m²</b></div>
+          <input id="rcsInput" type="range" min="0.1" max="20" step="0.1" value="5">
+        </label>
+        <div class="field-grid target-xy">
+          <label class="field">
+            <span>目标 X 东向</span>
+            <span class="field-input"><input id="targetXInput" type="number" step="0.001" min="-300" max="300" value="20"><em>km</em></span>
+          </label>
+          <label class="field">
+            <span>目标 Y 北向</span>
+            <span class="field-input"><input id="targetYInput" type="number" step="0.001" min="-300" max="300" value="15"><em>km</em></span>
+          </label>
+        </div>
+        <div class="toggles">
+          <label class="switch"><input id="jammerInput" type="checkbox"><span class="track"></span><span>干扰机开机</span></label>
+          <label class="switch"><input id="esmInput" type="checkbox"><span class="track"></span><span>ESM 开机</span></label>
+        </div>
+      </section>
+
+      <section class="card platform-card">
+        <div class="card-head small">
+          <h2>平台参数</h2>
+          <span class="platform-note">位置 km · 参数实时下发</span>
+        </div>
+
+        <div class="platform-group">
+          <h3>雷达</h3>
+          <div class="field-grid">
+            <label class="field">
+              <span>雷达 X 东向</span>
+              <span class="field-input"><input id="radarXInput" type="number" step="0.001" min="-300" max="300" value="0"><em>km</em></span>
+            </label>
+            <label class="field">
+              <span>雷达 Y 北向</span>
+              <span class="field-input"><input id="radarYInput" type="number" step="0.001" min="-300" max="300" value="0"><em>km</em></span>
+            </label>
+            <label class="field">
+              <span>发射功率 Pt</span>
+              <span class="field-input"><input id="ptInput" type="number" step="any" min="1" value="100000"><em>W</em></span>
+            </label>
+            <label class="field">
+              <span>天线增益 Gt</span>
+              <span class="field-input"><input id="gtInput" type="number" step="any" min="0.001" value="1000"><em>线性</em></span>
+            </label>
+            <label class="field">
+              <span>波长 λ</span>
+              <span class="field-input"><input id="lambdaInput" type="number" step="any" min="0.000001" value="0.03"><em>m</em></span>
+            </label>
+            <label class="field">
+              <span>系统损耗 L</span>
+              <span class="field-input"><input id="lossInput" type="number" step="any" min="0.001" value="4"><em>线性</em></span>
+            </label>
+            <label class="field span-2">
+              <span>最小可检测功率 Pmin</span>
+              <span class="field-input"><input id="pminInput" type="number" step="any" min="0" value="1e-13"><em>W</em></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="platform-group">
+          <h3>干扰机</h3>
+          <div class="field-grid">
+            <label class="field">
+              <span>干扰机 X 东向</span>
+              <span class="field-input"><input id="jammerXInput" type="number" step="0.001" min="-300" max="300" value="20"><em>km</em></span>
+            </label>
+            <label class="field">
+              <span>干扰机 Y 北向</span>
+              <span class="field-input"><input id="jammerYInput" type="number" step="0.001" min="-300" max="300" value="15"><em>km</em></span>
+            </label>
+            <label class="field">
+              <span>干扰功率 Pj</span>
+              <span class="field-input"><input id="pjInput" type="number" step="any" min="0.001" value="1000"><em>W</em></span>
+            </label>
+            <label class="field">
+              <span>干扰增益 Gj</span>
+              <span class="field-input"><input id="gjInput" type="number" step="any" min="0.001" value="100"><em>线性</em></span>
+            </label>
+            <label class="field span-2">
+              <span>J/S 门限</span>
+              <span class="field-input"><input id="jsThresholdInput" type="number" step="0.1" value="10"><em>dB</em></span>
+            </label>
+          </div>
+          <label class="select-row compact">
+            <span>干扰策略</span>
+            <select id="strategyInput">
+              <option value="noise">噪声压制 · noise</option>
+              <option value="deception" disabled>欺骗干扰 · 待实现</option>
+              <option value="rgpo" disabled>距离拖引 · 待实现</option>
+            </select>
+          </label>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>拖动雷达 / 目标 / 干扰机标记，或编辑平台参数实时更新</span>
+    <span id="footerWs">--</span>
+    <span>20 Hz 状态回传 · 物理计算由后端完成</span>
+  </footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    conn: $('conn'),
+    connText: $('connText'),
+    clock: $('clock'),
+    scaleLabel: $('scaleLabel'),
+    statusBadge: $('statusBadge'),
+    statusCn: $('statusCn'),
+    statusRing: $('statusRing'),
+    statusCode: $('statusCode'),
+    radarFlag: $('radarFlag'),
+    radarText: $('radarText'),
+    esmFlag: $('esmFlag'),
+    esmText: $('esmText'),
+    jamFlag: $('jamFlag'),
+    jamText: $('jamText'),
+    mR0: $('mR0'),
+    mReff: $('mReff'),
+    mRange: $('mRange'),
+    mJs: $('mJs'),
+    jsHint: $('jsHint'),
+    jsFill: $('jsFill'),
+    jsThreshold: $('jsThreshold'),
+    jsThresholdLabel: $('jsThresholdLabel'),
+    rangeInput: $('rangeInput'),
+    bearingInput: $('bearingInput'),
+    rcsInput: $('rcsInput'),
+    rangeValue: $('rangeValue'),
+    bearingValue: $('bearingValue'),
+    rcsValue: $('rcsValue'),
+    targetXInput: $('targetXInput'),
+    targetYInput: $('targetYInput'),
+    radarXInput: $('radarXInput'),
+    radarYInput: $('radarYInput'),
+    jammerXInput: $('jammerXInput'),
+    jammerYInput: $('jammerYInput'),
+    ptInput: $('ptInput'),
+    gtInput: $('gtInput'),
+    lambdaInput: $('lambdaInput'),
+    pminInput: $('pminInput'),
+    lossInput: $('lossInput'),
+    pjInput: $('pjInput'),
+    gjInput: $('gjInput'),
+    jsThresholdInput: $('jsThresholdInput'),
+    jammerInput: $('jammerInput'),
+    esmInput: $('esmInput'),
+    strategyInput: $('strategyInput'),
+    resetBtn: $('resetBtn'),
+    footerWs: $('footerWs'),
+    map: $('map'),
+    fitMapBtn: $('fitMapBtn'),
+    latInput: $('latInput'),
+    lonInput: $('lonInput'),
+    anchorBtn: $('anchorBtn')
+  };
+
+  const canvas = $('scope');
+  const ctx = canvas.getContext('2d');
+  // 通过 nginx 访问时使用同源 /ws；直接用 python3 -m http.server 3000
+  // 打开 frontend/ 时，连接后端默认 WebSocket 8081。
+  const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const isStaticDevServer = location.port === '3000';
+  const WS_URL = isStaticDevServer
+    ? `${wsProtocol}://${location.hostname || 'localhost'}:8081/ws`
+    : `${wsProtocol}://${location.host}/ws`;
+  els.footerWs.textContent = WS_URL;
+
+  const STATUS = {
+    NORMAL: { cn: '正常', color: '#34d399', code: 'N' },
+    ESM:    { cn: '仅 ESM 截获', color: '#22d3ee', code: 'E' },
+    JAMMED: { cn: '受扰但仍探测', color: '#fbbf24', code: 'J' },
+    LOST:   { cn: '目标丢失', color: '#f87171', code: 'L' }
+  };
+
+  const defaultScene = () => ({
+    radar: { Pt: 100000, Gt: 1000, lambda: 0.03, Pmin: 1e-13, loss: 4 },
+    jammer: { Pj: 1000, Gj: 100, js_threshold_db: 10, strategy: 'noise' },
+    target: { x: 20000, y: 15000, rcs: 5 },
+    radar_position: { x: 0, y: 0 },
+    // 与目标同距（25 km）、不同方位，保留默认 J/S 且避免标记重叠。
+    jammer_position: { x: 15000, y: 20000 },
+    esm_on: false,
+    jammer_on: false
+  });
+
+  let state = {
+    scene: defaultScene(),
+    result: {
+      R0: 0, R_eff: 0, R_target: 25000, R_jammer: 25000, js_ratio_db: -999,
+      esm_detected: false, target_detected: false, status: 'NORMAL'
+    }
+  };
+
+  let ws = null;
+  let reconnectTimer = null;
+  let connected = false;
+  let dragging = false;
+  let lastLocalInputAt = -Infinity;
+  let pendingScene = null;
+  let sendTimer = null;
+  let view = { cx: 0, cy: 0, plotRadius: 0, scaleRange: 60000 };
+
+  const EARTH_RADIUS_M = 6378137;
+  let anchor = { lat: 31.2304, lon: 121.4737 };
+  let map = null;
+  let mapReady = false;
+  let mapFittedOnce = false;
+  let mapTargetStatus = '';
+  let suppressMapClickUntil = 0;
+  // 20 Hz 状态回传会调用 updateMap()；拖动期间不能把 Leaflet 正在拖的
+  // marker 重置回旧坐标，否则拖拽会被每一帧状态推回起点。
+  let draggingMapMarker = null;
+  let radarMarker = null;
+  let targetMarker = null;
+  let jammerMarker = null;
+  let r0Circle = null;
+  let reffCircle = null;
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const toKm = (m) => (m / 1000).toFixed(1);
+  const deg = (x, y) => {
+    const d = Math.atan2(x, y) * 180 / Math.PI;
+    return (d + 360) % 360;
+  };
+
+  // ---------- WebSocket ----------
+
+  function setConnection(online) {
+    connected = online;
+    els.conn.classList.toggle('online', online);
+    els.conn.classList.toggle('offline', !online);
+    els.connText.textContent = online ? '实时在线' : '断线重连…';
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (err) {
+      setConnection(false);
+      reconnectTimer = setTimeout(connect, 1500);
+      return;
+    }
+
+    ws.onopen = () => setConnection(true);
+    ws.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(event.data); } catch (err) { return; }
+      if (message.type === 'state' && message.scene && message.result) {
+        state.scene = message.scene;
+        state.result = message.result;
+        updateUI();
+      }
+    };
+    ws.onerror = () => {
+      try { ws.close(); } catch (err) { /* ignore */ }
+    };
+    ws.onclose = () => {
+      setConnection(false);
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, 1500);
+      }
+    };
+  }
+
+  function flushScene() {
+    sendTimer = null;
+    if (!pendingScene) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'update', scene: pendingScene }));
+    }
+    pendingScene = null;
+  }
+
+  const WORLD_LIMIT_M = 300 * 1000;
+
+  function sceneRadarPosition() {
+    const position = state.scene.radar_position || { x: 0, y: 0 };
+    return {
+      x: Number.isFinite(position.x) ? position.x : 0,
+      y: Number.isFinite(position.y) ? position.y : 0
+    };
+  }
+
+  function sceneJammerPosition() {
+    const position = state.scene.jammer_position || state.scene.target;
+    return {
+      x: Number.isFinite(position.x) ? position.x : 0,
+      y: Number.isFinite(position.y) ? position.y : 0
+    };
+  }
+
+  function relativeTarget() {
+    const radar = sceneRadarPosition();
+    return {
+      x: state.scene.target.x - radar.x,
+      y: state.scene.target.y - radar.y
+    };
+  }
+
+  function numericValue(id, fallback) {
+    const value = parseFloat(els[id].value);
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function formatKm(meters) {
+    const text = (meters / 1000).toFixed(3);
+    return text.replace(/\.?0+$/, '') || '0';
+  }
+
+  function formatParam(value) {
+    return Number.isFinite(Number(value)) ? String(value) : '';
+  }
+
+  function updateTargetSliders() {
+    const relative = relativeTarget();
+    const rangeKm = Math.hypot(relative.x, relative.y) / 1000;
+    els.rangeInput.value = clamp(rangeKm, 0.5, 300).toFixed(1);
+    els.bearingInput.value = deg(relative.x, relative.y).toFixed(1);
+  }
+
+  function syncPositionInputs() {
+    const radar = sceneRadarPosition();
+    const jammer = sceneJammerPosition();
+    const target = state.scene.target;
+    els.radarXInput.value = formatKm(radar.x);
+    els.radarYInput.value = formatKm(radar.y);
+    els.targetXInput.value = formatKm(target.x);
+    els.targetYInput.value = formatKm(target.y);
+    els.jammerXInput.value = formatKm(jammer.x);
+    els.jammerYInput.value = formatKm(jammer.y);
+  }
+
+  function queueSend() {
+    const now = performance.now();
+    lastLocalInputAt = now;
+
+    const partial = sceneFromControls();
+    state.scene.radar = { ...state.scene.radar, ...partial.radar };
+    state.scene.jammer = { ...state.scene.jammer, ...partial.jammer };
+    state.scene.target = { ...state.scene.target, ...partial.target };
+    state.scene.radar_position = { ...partial.radar_position };
+    state.scene.jammer_position = { ...partial.jammer_position };
+    state.scene.jammer_on = partial.jammer_on;
+    state.scene.esm_on = partial.esm_on;
+
+    const relative = relativeTarget();
+    state.result.R_target = Math.hypot(relative.x, relative.y);
+    updateReadouts();
+    updateMap();
+
+    pendingScene = partial;
+    if (!sendTimer) sendTimer = setTimeout(flushScene, 45);
+  }
+
+  // ---------- Controls ----------
+
+  function sceneFromControls() {
+    const radar = sceneRadarPosition();
+    const jammer = sceneJammerPosition();
+    return {
+      radar: {
+        Pt: numericValue('ptInput', state.scene.radar.Pt),
+        Gt: numericValue('gtInput', state.scene.radar.Gt),
+        lambda: numericValue('lambdaInput', state.scene.radar.lambda),
+        Pmin: numericValue('pminInput', state.scene.radar.Pmin),
+        loss: numericValue('lossInput', state.scene.radar.loss)
+      },
+      jammer: {
+        Pj: numericValue('pjInput', state.scene.jammer.Pj),
+        Gj: numericValue('gjInput', state.scene.jammer.Gj),
+        js_threshold_db: numericValue('jsThresholdInput',
+                                      state.scene.jammer.js_threshold_db),
+        strategy: els.strategyInput.value || 'noise'
+      },
+      target: {
+        x: numericValue('targetXInput', state.scene.target.x / 1000) * 1000,
+        y: numericValue('targetYInput', state.scene.target.y / 1000) * 1000,
+        rcs: numericValue('rcsInput', state.scene.target.rcs)
+      },
+      radar_position: {
+        x: numericValue('radarXInput', radar.x / 1000) * 1000,
+        y: numericValue('radarYInput', radar.y / 1000) * 1000
+      },
+      jammer_position: {
+        x: numericValue('jammerXInput', jammer.x / 1000) * 1000,
+        y: numericValue('jammerYInput', jammer.y / 1000) * 1000
+      },
+      jammer_on: els.jammerInput.checked,
+      esm_on: els.esmInput.checked
+    };
+  }
+
+  function syncControlsFromScene() {
+    const radar = sceneRadarPosition();
+    const jammer = sceneJammerPosition();
+    const target = state.scene.target;
+    const relative = relativeTarget();
+
+    els.rangeInput.value = clamp(Math.hypot(relative.x, relative.y) / 1000,
+                                 0.5, 300).toFixed(1);
+    els.bearingInput.value = deg(relative.x, relative.y).toFixed(1);
+    els.rcsInput.value = clamp(target.rcs, 0.1, 20).toFixed(1);
+    els.jammerInput.checked = !!state.scene.jammer_on;
+    els.esmInput.checked = !!state.scene.esm_on;
+
+    syncPositionInputs();
+    els.ptInput.value = formatParam(state.scene.radar.Pt);
+    els.gtInput.value = formatParam(state.scene.radar.Gt);
+    els.lambdaInput.value = formatParam(state.scene.radar.lambda);
+    els.pminInput.value = formatParam(state.scene.radar.Pmin);
+    els.lossInput.value = formatParam(state.scene.radar.loss);
+    els.pjInput.value = formatParam(state.scene.jammer.Pj);
+    els.gjInput.value = formatParam(state.scene.jammer.Gj);
+    els.jsThresholdInput.value = formatParam(state.scene.jammer.js_threshold_db);
+
+    const known = Array.from(els.strategyInput.options).some(
+      (option) => option.value === state.scene.jammer.strategy);
+    if (known) els.strategyInput.value = state.scene.jammer.strategy;
+  }
+
+  function updateReadouts() {
+    const relative = relativeTarget();
+    els.rangeValue.textContent = `${toKm(Math.hypot(relative.x, relative.y))} km`;
+    els.bearingValue.textContent = `${deg(relative.x, relative.y).toFixed(1)}°`;
+    els.rcsValue.textContent = `${Number(state.scene.target.rcs).toFixed(1)} m²`;
+  }
+
+  function applyTargetPolar() {
+    const radar = sceneRadarPosition();
+    const rangeM = numericValue('rangeInput', 25) * 1000;
+    const bearing = numericValue('bearingInput', 0) * Math.PI / 180;
+    state.scene.target = {
+      ...state.scene.target,
+      x: radar.x + rangeM * Math.sin(bearing),
+      y: radar.y + rangeM * Math.cos(bearing)
+    };
+    syncPositionInputs();
+    updateReadouts();
+    queueSend();
+  }
+
+  function applyTargetXY() {
+    applyTargetPosition(
+      numericValue('targetXInput', state.scene.target.x / 1000) * 1000,
+      numericValue('targetYInput', state.scene.target.y / 1000) * 1000);
+  }
+
+  function applyRadarPosition() {
+    const radar = {
+      x: clamp(numericValue('radarXInput', sceneRadarPosition().x / 1000) * 1000,
+               -WORLD_LIMIT_M, WORLD_LIMIT_M),
+      y: clamp(numericValue('radarYInput', sceneRadarPosition().y / 1000) * 1000,
+               -WORLD_LIMIT_M, WORLD_LIMIT_M)
+    };
+    state.scene.radar_position = radar;
+    updateTargetSliders();
+    updateReadouts();
+    queueSend();
+  }
+
+  function applyJammerPosition() {
+    const jammer = {
+      x: clamp(numericValue('jammerXInput', sceneJammerPosition().x / 1000) * 1000,
+               -WORLD_LIMIT_M, WORLD_LIMIT_M),
+      y: clamp(numericValue('jammerYInput', sceneJammerPosition().y / 1000) * 1000,
+               -WORLD_LIMIT_M, WORLD_LIMIT_M)
+    };
+    state.scene.jammer_position = jammer;
+    updateReadouts();
+    queueSend();
+  }
+
+  function resetScene() {
+    state.scene = defaultScene();
+    syncControlsFromScene();
+    queueSend();
+  }
+
+  [els.rangeInput, els.bearingInput].forEach((input) => {
+    input.addEventListener('input', applyTargetPolar);
+  });
+  [els.targetXInput, els.targetYInput].forEach((input) => {
+    input.addEventListener('input', applyTargetXY);
+  });
+  [els.radarXInput, els.radarYInput].forEach((input) => {
+    input.addEventListener('input', applyRadarPosition);
+  });
+  [els.jammerXInput, els.jammerYInput].forEach((input) => {
+    input.addEventListener('input', applyJammerPosition);
+  });
+  els.rcsInput.addEventListener('input', () => {
+    state.scene.target.rcs = numericValue('rcsInput', state.scene.target.rcs);
+    queueSend();
+  });
+  [els.ptInput, els.gtInput, els.lambdaInput, els.pminInput, els.lossInput,
+   els.pjInput, els.gjInput, els.jsThresholdInput].forEach((input) => {
+    input.addEventListener('input', queueSend);
+  });
+  [els.jammerInput, els.esmInput, els.strategyInput].forEach((input) => {
+    input.addEventListener('change', queueSend);
+  });
+  els.resetBtn.addEventListener('click', resetScene);
+
+  // ---------- UI ----------
+
+  function setFlag(element, valueElement, on, text, kind) {
+    element.classList.toggle('on', kind === 'green' && on);
+    element.classList.toggle('cyan', kind === 'cyan' && on);
+    element.classList.toggle('warn', kind === 'amber' && on);
+    valueElement.textContent = text;
+  }
+
+  function updateUI() {
+    const scene = state.scene;
+    const result = state.result;
+    const status = STATUS[result.status] || STATUS.NORMAL;
+    const relative = relativeTarget();
+
+    state.result.R_target = Math.hypot(relative.x, relative.y);
+
+    els.statusBadge.textContent = result.status;
+    els.statusBadge.style.color = status.color;
+    els.statusBadge.style.borderColor = status.color + '66';
+    els.statusBadge.style.background = status.color + '16';
+    els.statusCn.textContent = status.cn;
+    els.statusCode.textContent = status.code;
+    els.statusRing.style.setProperty('--ring-color', status.color);
+
+    els.mR0.textContent = result.R0 > 0 ? toKm(result.R0) : '--';
+    els.mReff.textContent = result.R_eff > 0 ? toKm(result.R_eff) : '--';
+    els.mRange.textContent = toKm(result.R_target);
+
+    setFlag(els.radarFlag, els.radarText, result.target_detected,
+            result.target_detected ? '是' : '否', 'green');
+    setFlag(els.esmFlag, els.esmText, result.esm_detected,
+            result.esm_detected ? '是' : '否', 'cyan');
+    setFlag(els.jamFlag, els.jamText, scene.jammer_on,
+            scene.jammer_on ? '开机' : '关闭', 'amber');
+
+    const threshold = Number(scene.jammer.js_threshold_db) || 0;
+    els.jsThresholdLabel.textContent = `门限 ${threshold} dB`;
+    els.jsThreshold.style.left = `${clamp((threshold + 20) / 100, 0, 1) * 100}%`;
+
+    const jsValid = scene.jammer_on && result.js_ratio_db > -900;
+    if (!scene.jammer_on) {
+      els.mJs.textContent = '--';
+      els.mJs.style.color = '';
+      els.jsHint.textContent = '干扰关闭';
+      els.jsFill.style.width = '0%';
+    } else if (!jsValid) {
+      els.mJs.textContent = '--';
+      els.mJs.style.color = '';
+      els.jsHint.textContent = '无有效 J/S';
+      els.jsFill.style.width = '0%';
+    } else {
+      const js = result.js_ratio_db;
+      const above = js > threshold;
+      els.mJs.textContent = js.toFixed(1);
+      els.mJs.style.color = above ? 'var(--amber)' : 'var(--green)';
+      els.jsHint.textContent = above
+        ? `超门限 ${(js - threshold).toFixed(1)} dB`
+        : `门限内 ${(threshold - js).toFixed(1)} dB`;
+      els.jsFill.style.width = `${clamp((js + 20) / 100, 0, 1) * 100}%`;
+      els.jsFill.style.background = above ? 'var(--amber)' : 'var(--green)';
+      els.jsFill.style.color = above ? 'var(--amber)' : 'var(--green)';
+    }
+
+    if (!dragging && performance.now() - lastLocalInputAt > 350) {
+      syncControlsFromScene();
+    }
+    updateReadouts();
+    updateMap();
+  }
+
+  // ---------- 2D map (Leaflet + OpenStreetMap) ----------
+
+  function localToLatLng(x, y) {
+    const lat = anchor.lat + (y / EARTH_RADIUS_M) * 180 / Math.PI;
+    const lon = anchor.lon
+      + (x / (EARTH_RADIUS_M * Math.cos(anchor.lat * Math.PI / 180))) * 180 / Math.PI;
+    return L.latLng(lat, lon);
+  }
+
+  function latLngToLocal(latlng) {
+    const y = (latlng.lat - anchor.lat) * Math.PI / 180 * EARTH_RADIUS_M;
+    const x = (latlng.lng - anchor.lon) * Math.PI / 180
+      * EARTH_RADIUS_M * Math.cos(anchor.lat * Math.PI / 180);
+    return { x, y };
+  }
+
+  function radarLatLng() {
+    const radar = sceneRadarPosition();
+    return localToLatLng(radar.x, radar.y);
+  }
+
+  function targetLatLng() {
+    return localToLatLng(state.scene.target.x, state.scene.target.y);
+  }
+
+  function jammerLatLng() {
+    const jammer = sceneJammerPosition();
+    return localToLatLng(jammer.x, jammer.y);
+  }
+
+  function radarMapIcon() {
+    return L.divIcon({
+      className: 'map-icon-host',
+      html: '<div class="map-radar-icon"></div>',
+      iconSize: [17, 17],
+      iconAnchor: [8.5, 8.5]
+    });
+  }
+
+  function targetMapIcon(color) {
+    return L.divIcon({
+      className: 'map-icon-host',
+      html: `<div class="map-target-icon" style="--c:${color}"></div>`,
+      iconSize: [16, 16],
+      iconAnchor: [8, 8]
+    });
+  }
+
+  function jammerMapIcon() {
+    return L.divIcon({
+      className: 'map-icon-host',
+      html: '<div class="map-jammer-icon"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+  }
+
+  function clampWorldPoint(x, y) {
+    const distance = Math.hypot(x, y);
+    if (distance > WORLD_LIMIT_M) {
+      const scale = WORLD_LIMIT_M / distance;
+      return { x: x * scale, y: y * scale };
+    }
+    return { x, y };
+  }
+
+  function setRadarPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+      return;
+    const point = clampWorldPoint(x, y);
+    state.scene.radar_position = point;
+    els.radarXInput.value = formatKm(point.x);
+    els.radarYInput.value = formatKm(point.y);
+    updateTargetSliders();
+    updateReadouts();
+    queueSend();
+  }
+
+  function setJammerPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+      return;
+    const point = clampWorldPoint(x, y);
+    state.scene.jammer_position = point;
+    els.jammerXInput.value = formatKm(point.x);
+    els.jammerYInput.value = formatKm(point.y);
+    updateReadouts();
+    queueSend();
+  }
+
+  function initMap() {
+    if (typeof L === 'undefined') {
+      els.map.classList.add('map-unavailable');
+      els.map.innerHTML =
+        '地图库未能加载<br><span>Leaflet CDN 需要网络连接；PPI 视图不受影响</span>';
+      return;
+    }
+
+    const lat = parseFloat(els.latInput.value);
+    const lon = parseFloat(els.lonInput.value);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      anchor = { lat, lon };
+    }
+
+    map = L.map(els.map, {
+      zoomControl: true,
+      worldCopyJump: true,
+      preferCanvas: true
+    }).setView([anchor.lat, anchor.lon], 9);
+
+    const osmUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    const osmAttribution =
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+    els.map.classList.add('map-dark');
+
+    const darkLayer = L.tileLayer(osmUrl, {
+      maxZoom: 19,
+      attribution: osmAttribution
+    }).addTo(map);
+
+    const streetLayer = L.tileLayer(osmUrl, {
+      maxZoom: 19,
+      attribution: osmAttribution
+    });
+
+    L.control.layers(
+      { '深色 · OSM': darkLayer, '标准 · OSM': streetLayer },
+      null,
+      { position: 'topright' }
+    ).addTo(map);
+
+    map.on('baselayerchange', (event) => {
+      els.map.classList.toggle('map-dark', event.name.indexOf('深色') === 0);
+    });
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+
+    radarMarker = L.marker(radarLatLng(), {
+      icon: radarMapIcon(),
+      draggable: true,
+      keyboard: false
+    }).addTo(map).bindTooltip('雷达', {
+      permanent: true, direction: 'right', offset: [12, 0], className: 'map-tip'
+    });
+
+    radarMarker.on('dragstart', () => {
+      draggingMapMarker = 'radar';
+    });
+    radarMarker.on('dragend', (event) => {
+      draggingMapMarker = null;
+      suppressMapClickUntil = performance.now() + 250;
+      const point = latLngToLocal(event.target.getLatLng());
+      setRadarPosition(point.x, point.y);
+    });
+
+    jammerMarker = L.marker(jammerLatLng(), {
+      icon: jammerMapIcon(),
+      draggable: true,
+      keyboard: false
+    }).addTo(map).bindTooltip('干扰机', {
+      permanent: true, direction: 'left', offset: [-12, 0], className: 'map-tip'
+    });
+
+    jammerMarker.on('dragstart', () => {
+      draggingMapMarker = 'jammer';
+    });
+    jammerMarker.on('dragend', (event) => {
+      draggingMapMarker = null;
+      suppressMapClickUntil = performance.now() + 250;
+      const point = latLngToLocal(event.target.getLatLng());
+      setJammerPosition(point.x, point.y);
+    });
+
+    targetMarker = L.marker(targetLatLng(), {
+      icon: targetMapIcon(STATUS.NORMAL.color),
+      draggable: true,
+      keyboard: false
+    }).addTo(map).bindTooltip('目标', {
+      permanent: true, direction: 'right', offset: [12, 0], className: 'map-tip'
+    });
+
+    targetMarker.on('dragstart', () => {
+      draggingMapMarker = 'target';
+    });
+    targetMarker.on('dragend', (event) => {
+      draggingMapMarker = null;
+      suppressMapClickUntil = performance.now() + 250;
+      const point = latLngToLocal(event.target.getLatLng());
+      applyTargetPosition(point.x, point.y);
+    });
+
+    r0Circle = L.circle(radarLatLng(), {
+      radius: 0,
+      color: '#60a5fa',
+      weight: 1.4,
+      dashArray: '6 8',
+      fill: false,
+      interactive: false
+    }).addTo(map);
+
+    reffCircle = L.circle(radarLatLng(), {
+      radius: 0,
+      color: '#fbbf24',
+      weight: 1.4,
+      dashArray: '3 5',
+      fillColor: '#fbbf24',
+      fillOpacity: 0.035,
+      interactive: false
+    }).addTo(map);
+
+    map.on('click', (event) => {
+      if (performance.now() < suppressMapClickUntil) return;
+      const point = latLngToLocal(event.latlng);
+      applyTargetPosition(point.x, point.y);
+    });
+
+    els.fitMapBtn.addEventListener('click', fitMap);
+    els.anchorBtn.addEventListener('click', applyAnchor);
+
+    mapReady = true;
+    updateMap();
+    setTimeout(() => { if (map) map.invalidateSize(); }, 0);
+  }
+
+  function fitMap() {
+    if (!mapReady) return;
+    const bounds = L.latLngBounds([
+      radarLatLng(), targetLatLng(), jammerLatLng()
+    ]);
+    if (r0Circle && r0Circle.getRadius() > 0) bounds.extend(r0Circle.getBounds());
+    if (reffCircle && reffCircle.getRadius() > 0) bounds.extend(reffCircle.getBounds());
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+  }
+
+  function applyAnchor() {
+    const lat = parseFloat(els.latInput.value);
+    const lon = parseFloat(els.lonInput.value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)
+        || Math.abs(lat) > 85 || Math.abs(lon) > 180) {
+      els.latInput.value = anchor.lat.toFixed(4);
+      els.lonInput.value = anchor.lon.toFixed(4);
+      return;
+    }
+
+    anchor = { lat, lon };
+    mapFittedOnce = true;
+    updateMap();
+    fitMap();
+  }
+
+  function updateMap() {
+    if (!mapReady)
+      return;
+
+    const radar = radarLatLng();
+    const target = targetLatLng();
+    const jammer = jammerLatLng();
+    const result = state.result;
+    const status = STATUS[result.status] || STATUS.NORMAL;
+    const radarPoint = sceneRadarPosition();
+    const jammerPoint = sceneJammerPosition();
+    const relative = relativeTarget();
+
+    if (draggingMapMarker !== 'radar')
+      radarMarker.setLatLng(radar);
+    radarMarker.setTooltipContent(
+      `雷达 · X ${formatKm(radarPoint.x)} / Y ${formatKm(radarPoint.y)} km`);
+
+    if (draggingMapMarker !== 'jammer')
+      jammerMarker.setLatLng(jammer);
+    jammerMarker.setTooltipContent(
+      `干扰机 · 距雷达 ${toKm(Math.hypot(jammerPoint.x - radarPoint.x,
+                                         jammerPoint.y - radarPoint.y))} km`);
+
+    if (draggingMapMarker !== 'target')
+      targetMarker.setLatLng(target);
+    if (mapTargetStatus !== result.status) {
+      targetMarker.setIcon(targetMapIcon(status.color));
+      mapTargetStatus = result.status;
+    }
+    targetMarker.setTooltipContent(
+      `目标 · ${toKm(Math.hypot(relative.x, relative.y))} km · ${result.status}`);
+
+    if (result.R0 > 0) {
+      r0Circle.setLatLng(radar).setRadius(result.R0);
+      if (!map.hasLayer(r0Circle)) r0Circle.addTo(map);
+    } else if (map.hasLayer(r0Circle)) {
+      map.removeLayer(r0Circle);
+    }
+
+    const showReff = state.scene.jammer_on && result.R_eff > 0
+      && Math.abs(result.R_eff - result.R0) > 1;
+    if (showReff) {
+      reffCircle.setLatLng(radar).setRadius(result.R_eff);
+      if (!map.hasLayer(reffCircle)) reffCircle.addTo(map);
+    } else if (map.hasLayer(reffCircle)) {
+      map.removeLayer(reffCircle);
+    }
+
+    if (!mapFittedOnce && result.R0 > 0) {
+      fitMap();
+      mapFittedOnce = true;
+    }
+  }
+
+  // ---------- Canvas ----------
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+  } else {
+    window.addEventListener('resize', resizeCanvas);
+  }
+  resizeCanvas();
+
+  function chooseScale() {
+    const relative = relativeTarget();
+    const radar = sceneRadarPosition();
+    const jammer = sceneJammerPosition();
+    const targetR = Math.hypot(relative.x, relative.y);
+    const jammerR = state.scene.jammer_on
+      ? Math.hypot(jammer.x - radar.x, jammer.y - radar.y) : 0;
+    const needed = Math.max(
+      state.result.R0 || 0,
+      state.result.R_eff || 0,
+      targetR,
+      jammerR,
+      25000
+    ) * 1.18;
+    const steps = [30000, 50000, 60000, 80000, 100000, 120000, 150000,
+                   200000, 250000, 300000, 400000, 500000];
+    for (const step of steps) {
+      if (needed <= step) return step;
+    }
+    return Math.ceil(needed / 100000) * 100000;
+  }
+
+  function drawCircle(rangeM, color, dash, label) {
+    const radius = rangeM / view.scaleRange * view.plotRadius;
+    if (!Number.isFinite(radius) || radius <= 0) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    ctx.arc(view.cx, view.cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    const angle = -Math.PI * 0.74;
+    const x = view.cx + radius * Math.cos(angle);
+    const y = view.cy + radius * Math.sin(angle);
+    ctx.save();
+    ctx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x, y - 5);
+    ctx.restore();
+  }
+
+  function drawSweep(time) {
+    const radius = view.plotRadius;
+    const angle = (time / 2800 * Math.PI * 2) % (Math.PI * 2);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(view.cx, view.cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+
+    if (ctx.createConicGradient) {
+      const gradient = ctx.createConicGradient(angle - Math.PI * 0.34, view.cx, view.cy);
+      gradient.addColorStop(0, 'rgba(45, 212, 191, 0.20)');
+      gradient.addColorStop(0.16, 'rgba(45, 212, 191, 0.025)');
+      gradient.addColorStop(0.34, 'rgba(45, 212, 191, 0)');
+      gradient.addColorStop(1, 'rgba(45, 212, 191, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(view.cx - radius, view.cy - radius, radius * 2, radius * 2);
+    }
+
+    const endX = view.cx + radius * Math.cos(angle);
+    const endY = view.cy + radius * Math.sin(angle);
+    const beam = ctx.createLinearGradient(view.cx, view.cy, endX, endY);
+    beam.addColorStop(0, 'rgba(45, 212, 191, 0.08)');
+    beam.addColorStop(0.72, 'rgba(45, 212, 191, 0.55)');
+    beam.addColorStop(1, 'rgba(125, 252, 226, 0.95)');
+    ctx.strokeStyle = beam;
+    ctx.lineWidth = 1.25;
+    ctx.shadowColor = 'rgba(45, 212, 191, 0.7)';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(view.cx, view.cy);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawJammer(time) {
+    const radar = sceneRadarPosition();
+    const jammer = sceneJammerPosition();
+    const relX = jammer.x - radar.x;
+    const relY = jammer.y - radar.y;
+    const jx = view.cx + relX / view.scaleRange * view.plotRadius;
+    const jy = view.cy - relY / view.scaleRange * view.plotRadius;
+    const active = state.scene.jammer_on;
+    const color = active ? '#fbbf24' : 'rgba(251, 191, 36, 0.55)';
+
+    ctx.save();
+    ctx.setLineDash([3, 8]);
+    ctx.strokeStyle = active ? 'rgba(251, 191, 36, 0.38)'
+                             : 'rgba(251, 191, 36, 0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(view.cx, view.cy);
+    ctx.lineTo(jx, jy);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(jx, jy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = active ? 'rgba(251, 191, 36, 0.28)'
+                           : 'rgba(251, 191, 36, 0.10)';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = active ? 12 + 4 * Math.sin(time / 300) : 0;
+    ctx.fillRect(-4.5, -4.5, 9, 9);
+    ctx.strokeRect(-4.5, -4.5, 9, 9);
+    ctx.restore();
+
+    ctx.save();
+    ctx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--sans');
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('干扰机', jx + 10, jy - 9);
+    ctx.restore();
+  }
+
+  function drawTarget(time) {
+    const target = state.scene.target;
+    const radar = sceneRadarPosition();
+    const relX = target.x - radar.x;
+    const relY = target.y - radar.y;
+    const result = state.result;
+    const status = STATUS[result.status] || STATUS.NORMAL;
+    const tx = view.cx + relX / view.scaleRange * view.plotRadius;
+    const ty = view.cy - relY / view.scaleRange * view.plotRadius;
+
+    ctx.save();
+    ctx.setLineDash([2, 7]);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(view.cx, view.cy);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.restore();
+
+    const pulse = 1 + 0.18 * Math.sin(time / 260);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(tx, ty, 15 * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = status.color + '12';
+    ctx.fill();
+    ctx.strokeStyle = status.color + '55';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+    ctx.fillStyle = status.color;
+    ctx.shadowColor = status.color;
+    ctx.shadowBlur = 15;
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = status.color;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(tx - 11, ty); ctx.lineTo(tx - 6, ty);
+    ctx.moveTo(tx + 6, ty); ctx.lineTo(tx + 11, ty);
+    ctx.moveTo(tx, ty - 11); ctx.lineTo(tx, ty - 6);
+    ctx.moveTo(tx, ty + 6); ctx.lineTo(tx, ty + 11);
+    ctx.stroke();
+    ctx.restore();
+
+    const distance = Math.hypot(relX, relY);
+    const text = `目标 ${toKm(distance)} km · ${deg(relX, relY).toFixed(1)}°`;
+    ctx.save();
+    ctx.font = '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--sans');
+    const textWidth = ctx.measureText(text).width;
+    const placeLeft = tx > canvas.clientWidth * 0.68;
+    const boxX = placeLeft ? tx - textWidth - 24 : tx + 12;
+    const boxY = ty - 33;
+
+    ctx.fillStyle = 'rgba(4, 10, 18, 0.82)';
+    ctx.strokeStyle = status.color + '45';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, textWidth + 14, 21, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = status.color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, boxX + 7, boxY + 11);
+    ctx.restore();
+  }
+
+  function draw() {
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (!width || !height) return;
+
+    const now = performance.now();
+    ctx.clearRect(0, 0, width, height);
+
+    const background = ctx.createRadialGradient(
+      width / 2, height / 2, 0, width / 2, height / 2, Math.max(width, height) * 0.7);
+    background.addColorStop(0, '#0a1725');
+    background.addColorStop(0.68, '#060d18');
+    background.addColorStop(1, '#03070d');
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+
+    view = {
+      cx: width / 2,
+      cy: height / 2,
+      plotRadius: Math.min(width, height) * 0.435,
+      scaleRange: chooseScale()
+    };
+
+    els.scaleLabel.textContent = `量程 ${Math.round(view.scaleRange / 1000)} km`;
+
+    drawSweep(now);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(view.cx, view.cy, view.plotRadius, 0, Math.PI * 2);
+    ctx.clip();
+
+    // 距离环
+    for (let i = 1; i <= 5; i += 1) {
+      const radius = view.plotRadius * i / 5;
+      ctx.beginPath();
+      ctx.arc(view.cx, view.cy, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = i === 5 ? 'rgba(96, 165, 250, 0.18)'
+                                : 'rgba(148, 163, 184, 0.10)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(130, 145, 167, 0.55)';
+      ctx.font = '9px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`${Math.round(view.scaleRange * i / 5000)} km`,
+                   view.cx + radius - 5, view.cy - 4);
+    }
+
+    // 十字轴
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(view.cx - view.plotRadius, view.cy);
+    ctx.lineTo(view.cx + view.plotRadius, view.cy);
+    ctx.moveTo(view.cx, view.cy - view.plotRadius);
+    ctx.lineTo(view.cx, view.cy + view.plotRadius);
+    ctx.stroke();
+
+    // 受扰压制的环形区域
+    if (state.scene.jammer_on && state.result.R_eff > 0
+        && state.result.R_eff < state.result.R0) {
+      const outer = state.result.R0 / view.scaleRange * view.plotRadius;
+      const inner = state.result.R_eff / view.scaleRange * view.plotRadius;
+      ctx.beginPath();
+      ctx.arc(view.cx, view.cy, outer, 0, Math.PI * 2);
+      ctx.arc(view.cx, view.cy, inner, 0, Math.PI * 2, true);
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.035)';
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    if (state.result.R0 > 0) {
+      drawCircle(state.result.R0, '#60a5fa', [5, 6], 'R0');
+    }
+    if (state.scene.jammer_on && state.result.R_eff > 0
+        && Math.abs(state.result.R_eff - state.result.R0) > 1) {
+      drawCircle(state.result.R_eff, '#fbbf24', [3, 5], 'R_eff');
+    }
+
+    // 雷达原点
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(view.cx, view.cy, 9, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(45, 212, 191, 0.34)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(view.cx, view.cy, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#2dd4bf';
+    ctx.shadowColor = '#2dd4bf';
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(45, 212, 191, 0.72)';
+    ctx.font = '9px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('RADAR', view.cx + 14, view.cy + 1);
+    ctx.restore();
+
+    drawJammer(now);
+    drawTarget(now);
+
+    if (!state.result.R0) {
+      ctx.save();
+      ctx.font = '13px ' + getComputedStyle(document.documentElement).getPropertyValue('--sans');
+      ctx.fillStyle = 'rgba(229, 237, 247, 0.55)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('等待后端状态…', view.cx, view.cy + 54);
+      ctx.restore();
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  // ---------- Drag target ----------
+
+  function pointerToWorld(event) {
+    const rect = canvas.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    let x = (px - view.cx) / view.plotRadius * view.scaleRange;
+    let y = -(py - view.cy) / view.plotRadius * view.scaleRange;
+    const distance = Math.hypot(x, y);
+    const maxDistance = 300 * 1000;
+    if (distance > maxDistance) {
+      const scale = maxDistance / distance;
+      x *= scale;
+      y *= scale;
+    }
+    return { x, y };
+  }
+
+  function applyTargetPosition(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+      return;
+
+    const radar = sceneRadarPosition();
+    let dx = x - radar.x;
+    let dy = y - radar.y;
+    let distance = Math.hypot(dx, dy);
+    const minDistance = 500;
+    const maxDistance = 300 * 1000;
+
+    if (distance < minDistance) {
+      if (distance < 1e-6) {
+        dx = 0;
+        dy = minDistance;
+      } else {
+        dx *= minDistance / distance;
+        dy *= minDistance / distance;
+      }
+    } else if (distance > maxDistance) {
+      dx *= maxDistance / distance;
+      dy *= maxDistance / distance;
+    }
+
+    state.scene.target = {
+      ...state.scene.target,
+      x: radar.x + dx,
+      y: radar.y + dy
+    };
+    els.targetXInput.value = formatKm(state.scene.target.x);
+    els.targetYInput.value = formatKm(state.scene.target.y);
+    updateTargetSliders();
+    updateReadouts();
+    queueSend();
+  }
+
+  function updateTargetFromPointer(event) {
+    const point = pointerToWorld(event);
+    const radar = sceneRadarPosition();
+    applyTargetPosition(radar.x + point.x, radar.y + point.y);
+  }
+
+  canvas.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    canvas.setPointerCapture(event.pointerId);
+    updateTargetFromPointer(event);
+  });
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (dragging) updateTargetFromPointer(event);
+  });
+
+  const stopDragging = (event) => {
+    if (!dragging) return;
+    dragging = false;
+    if (event.pointerId !== undefined && canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  };
+  canvas.addEventListener('pointerup', stopDragging);
+  canvas.addEventListener('pointercancel', stopDragging);
+
+  // ---------- Clock / boot ----------
+
+  function tickClock() {
+    els.clock.textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  }
+
+  tickClock();
+  setInterval(tickClock, 1000);
+  syncControlsFromScene();
+  updateUI();
+  updateReadouts();
+  initMap();
+  requestAnimationFrame(draw);
+  connect();
+})();
+</script>
+</body>
+</html>

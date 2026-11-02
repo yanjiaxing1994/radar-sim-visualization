@@ -2,6 +2,8 @@
 
 基于 C++/Qt 后端 + HTML/Canvas 前端的雷达探测-干扰-压制-目标丢失全过程仿真演示。
 
+![演示：NORMAL → ESM → JAMMED → LOST → 恢复](docs/demo.gif)
+
 ## 功能特性
 
 - 雷达探测：基于雷达方程计算基准探测距离 `R0`
